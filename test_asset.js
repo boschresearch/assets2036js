@@ -15,55 +15,67 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+const BROKER = "test.mosquitto.org";
+const PORT = 8080;
 import { Asset, ProxyAsset, discover, AssetWatcher } from "./asset.js";
 import Debug from "debug";
 const debug = Debug("test_asset");
+
+debug("Starting the tests")
 
 function getBool() {
     debug("getBool called");
     return false;
 }
-
 // Be the asset
 
 (async _ => {
-    let asset = new Asset("192.168.100.3", 8282, "arena2036", "jsTestAsset");
+    debug("Publish an asset to " + BROKER);
+    let asset = new Asset(BROKER, PORT, "arena2036", "jsTestAsset", false);
+    debug("asset created!");
     await asset.connect()
-    debug("Connected!");
-    await asset.registerAsset(
-        "https://arena2036-infrastructure.saz.bosch-si.com/arena2036_public/assets2036_submodels/-/raw/master/testmodel.json");
+    debug("Connected! Registering asset...");
+    await asset.registerAspect(
+        "https://raw.githubusercontent.com/boschresearch/assets2036-submodels/master/testmodel.json");
     debug("Registration done");
     asset.setHealthy(true);
     asset.testmodel.bind_getBool(getBool);
+    asset.testmodel.bind_setNumber(num => debug("Received ", num));
     asset.testmodel.integer = 42;
-    asset.testmodel.boolEvent({ param1: true });
+    debug("create proxy asset");
+    let proxyAsset = new ProxyAsset(BROKER, PORT, "arena2036", "jsTestAsset");
+    await proxyAsset.connect();
+    debug("Proxy asset connected!");
+    let resp = await proxyAsset.testmodel.setNumber({ "param_1": 42 });
+    debug(resp);
+    proxyAsset.testmodel.on_string(value => { debug("new string: ", value) });
+    proxyAsset.testmodel.on_numberEvent((timestamp, params) => { debug("new event: ", timestamp, params) });
+
+
+
+
+    asset.testmodel.numberEvent({ param1: 44 });
 
     await new Promise((resolve, reject) => {
-        setInterval(_ => resolve(), 2000);
+        setInterval(_ => resolve(), 20000);
+        debug(".");
     });
 
     asset.cleanup();
 })().catch(error => debug(error));
 
-// Use an asset
-(async _ => {
-    let proxyAsset = new ProxyAsset("192.168.100.3", 8282, "arena2036", "test_asset");
-    await proxyAsset.connect();
-    let resp = await proxyAsset.testmodel.setNumber({ "param_1": 42 });
-    debug(resp);
-    proxyAsset.testmodel.on_string(value => { debug("new string: ", value) });
-    proxyAsset.testmodel.on_numberEvent((timestamp, params) => { debug("new event: ", timestamp, params) });
-})();
+
+
 // Discover assets
 (async _ => {
-    const assets = await discover("192.168.100.3", 8282, "+"); // namespace '+' --> discover all
+    const assets = await discover(BROKER, PORT, "+"); // namespace '+' --> discover all
     debug("assets found: ", assets.length);
     debug(assets);
 })();
 
 // Watch for new assets and submodels
 
-const watcher = new AssetWatcher("192.168.100.3", 8282);
+const watcher = new AssetWatcher(BROKER, PORT);
 watcher.connect().then(_ => {
     watcher.onAssetInfo(assetInfo => debug(assetInfo));
     debug("registered watcher");
@@ -71,7 +83,7 @@ watcher.connect().then(_ => {
 
 
 // watch online and healthy states
-const ohwatcher = new AssetWatcher("192.168.100.3", 8282);
+const ohwatcher = new AssetWatcher(BROKER, PORT);
 ohwatcher.connect().then(_ => {
     debug("Connected");
     ohwatcher.onAssetSubmodelHealthy("arena2036", "200A", "tracked_location", healthy => debug("is healthy: ", healthy));
