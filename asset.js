@@ -371,15 +371,7 @@ export class AssetWatcher {
     }
 
     async connect() {
-        return new Promise((resolve, reject) => {
-            if (this.client.isConnected()) {
-                resolve();
-            } else {
-                this.client.connect({
-                    "onSuccess": _ => { resolve() }
-                })
-            }
-        });
+        return this.client.connect();
     }
 
 
