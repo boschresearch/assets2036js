@@ -20,20 +20,20 @@ if (typeof global !== "undefined") {
     global.WebSocket = WebSocket
 }
 import Debug from 'debug';
-import CommunicationClient from "communicationclient";
+import CommunicationClient from "./communicationclient.js";
 import axios from "axios";
 import https from "https";
 import { v4 as uuid4 } from "uuid";
 import endpointDefinition from "./_endpoint_definition.js";
 import submodelSchemaDef from "./submodelschema.js";
 import { Validator } from "jsonschema";
-import submodelschema from "./submodelschema.js";
+
 
 const debug = Debug("asset");
 
 class BaseAsset {
     constructor(brokerIP, brokerPort, namespace, assetName, useSSL) {
-        this.client = new CommunicationClient(brokerIP, brokerPort, assetName + "_" + uuid4(), useSSL);
+        this.client = new CommunicationClient(brokerIP, brokerPort, useSSL, assetName + "_" + uuid4());
         this.namespace = namespace;
         this.client.onConnectionLost(err => {
             debug("Connection lost!!!! ", err);
@@ -42,16 +42,10 @@ class BaseAsset {
     }
 
     async connect() {
-        return new Promise((resolve, reject) => {
-            const config = {
-                "onSuccess": _ => {
-                    debug("Connected to broker.");
-                    resolve();
-                }
-            };
-            debug("attempting to connect...");
-            this.client.connect(config);
-        });
+
+        debug("attempting to connect...");
+        return this.client.connect();
+
     }
 
     generateTopic(submodel, submodelElement, suffix) {
@@ -78,7 +72,8 @@ export class ProxyAsset extends BaseAsset {
     }
 
     onPropertyChange(submodel, name, callback) {
-        this.client.subscribe(this.generateTopic(submodel, name), message => {
+        const topic = this.generateTopic(submodel, name)
+        this.client.subscribe(topic, message => {
             try {
                 callback(JSON.parse(message.payloadString));
             } catch (e) {
@@ -89,7 +84,8 @@ export class ProxyAsset extends BaseAsset {
     }
 
     onEvent(submodel, name, callback) {
-        this.client.subscribe(this.generateTopic(submodel, name), message => {
+        const topic = this.generateTopic(submodel, name);
+        this.client.subscribe(topic, message => {
             try {
                 const payload = JSON.parse(message.payloadString)
                 callback(payload.timestamp, payload.params);
@@ -100,6 +96,7 @@ export class ProxyAsset extends BaseAsset {
     }
 
     callOperation(submodel, name, params) {
+        debug("Calling operation " + name);
         const req_id = uuid4();
         return new Promise((resolve, reject) => {
             const resp_topic = this.generateTopic(submodel, name, "RESP");
@@ -118,11 +115,14 @@ export class ProxyAsset extends BaseAsset {
                 "req_id": req_id,
                 "params": typeof params === "undefined" ? {} : params
             }
-            this.client.publish(this.generateTopic(submodel, name, "REQ"), JSON.stringify(req_payload));
+            const topic = this.generateTopic(submodel, name, "REQ")
+            this.client.publish(topic, JSON.stringify(req_payload));
+            debug("Published to ", topic);
         });
     }
 
     _createSubmodelStructure(submodels) {
+        debug("creating structure for submodels:" + JSON.stringify(submodels));
         for (let [name, submodelDefinition] of Object.entries(submodels)) {
 
             let submodel = new Object();
@@ -165,14 +165,19 @@ export class ProxyAsset extends BaseAsset {
     _fetchSubmodels(namespace, assetName) {
         let submodels = {}
         return new Promise((resolve, reject) => {
-            this.client.subscribe(`${namespace}/${assetName}/+/_meta`, message => {
+            const topic = `${namespace}/${assetName}/+/_meta`;
+            this.client.subscribe(topic, message => {
                 try {
                     const definition = JSON.parse(message.payloadString)["submodel_definition"];
                     const name = definition.name;
                     submodels[name] = definition;
                 }
                 catch (e) {
-                    debug(e);
+                    if (message.payloadString === "") {
+                        // someone deleted the message 
+                        return;
+                    }
+                    debug("Could not parse", message.payloadString, "from", message.destinationName);
                 }
 
             });
@@ -194,22 +199,17 @@ export class Asset extends BaseAsset {
     }
 
     async connect() {
-        return new Promise((resolve, reject) => {
-            const config = {
-                "willMessage": { "topic": `${this.namespace}/${this.assetName}/_endpoint/online`, "payload": "false" },
-                "onSuccess": _ => {
-                    debug("Connected to broker.");
-                    this.setOnline();
-                    this.registerAspect(endpointDefinition).then(_ => {
-                        debug("Registered endpoint.");
-                        resolve();
-                    });
+        const config = {
+            "willMessage": { "topic": `${this.namespace}/${this.assetName}/_endpoint/online`, "payload": "false" },
+            "onSuccess": _ => {
+                debug("Connected to broker.");
 
-                }
+
             }
-            debug("attempting to connect...");
-            this.client.connect(config);
-        });
+        }
+        await this.client.connect(config);
+        this.setOnline();
+        await this.registerAspect(endpointDefinition);
     }
 
     setHealthy(healthy) {
@@ -329,6 +329,7 @@ export class Asset extends BaseAsset {
 
     bindOperation(submodelName, operationName, callback) {
         const opReqTopic = this.generateTopic(submodelName, operationName, "REQ")
+        debug("subscribing ", opReqTopic);
         this.client.subscribe(opReqTopic, (req) => {
             try {
                 debug("Operation called: ", operationName);
@@ -364,7 +365,7 @@ export class Asset extends BaseAsset {
 export class AssetWatcher {
 
     constructor(brokerIP, brokerPort, useSSL = false) {
-        this.client = new CommunicationClient(brokerIP, brokerPort, "assetwatcher_" + uuid4(), useSSL);
+        this.client = new CommunicationClient(brokerIP, brokerPort, useSSL, "assetwatcher_" + uuid4());
         this.knownAssets = {};
         this.validator = new Validator();
     }

@@ -7,16 +7,16 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git@arena2036-infrastructure.saz.bosch-si.com:arena2036/assets2036js.git"
+    "url": "git@github.com:boschresearch/assets2036js.git"
   },
   "dependencies": {
     "axios": "^0.20.0",
-    "communicationclient": "https://arena2036-backend.saz.bosch-si.com/npm_modules/communicationclient-1.0.0.tgz",
     "debug": "^4.2.0",
     "dotenv": "^8.2.0",
     "https": "^1.0.0",
     "isomorphic-ws": "^4.0.1",
     "jsonschema": "^1.4.0",
+    "paho-mqtt": "^1.1.0",
     "uuid": "^8.3.1",
     "ws": "^7.4.0"
   },
