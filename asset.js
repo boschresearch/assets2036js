@@ -95,7 +95,7 @@ export class ProxyAsset extends BaseAsset {
         });
     }
 
-    callOperation(submodel, name, params) {
+    async callOperation(submodel, name, params) {
         debug("Calling operation " + name);
         const req_id = uuid4();
         return new Promise((resolve, reject) => {
