@@ -17,12 +17,11 @@ limitations under the License.
 
 import WebSocket from "isomorphic-ws";
 if (typeof global !== "undefined") {
-    global.WebSocket = WebSocket
+    global.WebSocket = WebSocket;
+
 }
 import Debug from 'debug';
 import CommunicationClient from "./communicationclient.js";
-import axios from "axios";
-import https from "https";
 import { v4 as uuid4 } from "uuid";
 import endpointDefinition from "./_endpoint_definition.js";
 import submodelSchemaDef from "./submodelschema.js";
@@ -290,12 +289,9 @@ export class Asset extends BaseAsset {
     }
 
     async _retrieveModel(submodelUrl) {
-        return axios.get(submodelUrl, {
-            httpsAgent: new https.Agent({ rejectUnauthorized: false })
-        }).then(resp => {
-            debug("fetched submodel");
-            return resp.data;
-        }).catch(error => { debug(error) });
+        const resp = await fetch(submodelUrl);
+        const submodel = await resp.json();
+        return submodel;
     }
 
     _publishMetaInfo(submodelDefinition, submodelUrl) {
