@@ -307,7 +307,7 @@ export class Asset extends BaseAsset {
     emitEvent(submodelName, eventName, parameters) {
         const payload = {
             "timestamp": new Date().toISOString(),
-            "params": parameters
+            "params": parameters ? parameters : {}
         }
         debug("emitting", eventName, payload);
         if (this.client.isConnected()) {
