@@ -19,21 +19,21 @@ test("create_communication_client", () => {
 
 test("connection_plain", async () => {
     const client = new CommunicationClient();
-    expect(client.is_connected()).toBe(false);
+    expect(client.isConnected()).toBe(false);
     
     const port = 8080;
     await client.connect(broker, port, false);
-    expect(client.is_connected()).toBe(true);
+    expect(client.isConnected()).toBe(true);
     await client.disconnect();
-    expect(client.is_connected()).toBe(false);
+    expect(client.isConnected()).toBe(false);
 })
 
 test("connection_ssl", async () => {
     const client = new CommunicationClient();
-    expect(client.is_connected()).toBe(false);
+    expect(client.isConnected()).toBe(false);
     const port = 8081;
     await client.connect(broker, port, true);
-    expect(client.is_connected()).toBe(true);
+    expect(client.isConnected()).toBe(true);
 })
 
 
