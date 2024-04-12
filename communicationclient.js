@@ -1,4 +1,4 @@
-import PahoMqtt from "paho-mqtt";
+import mqtt from "mqtt";
 import { v4 as uuidv4 } from "uuid";
 import Debug from "debug";
 const debug = Debug("communicationclient");
@@ -21,116 +21,126 @@ function is_match(topic, wildcard_topic) {
 }
 
 export default class {
-    constructor(broker_url, broker_port, useSSL, client_id) {
+    constructor() {
         this.callbacks = {};
-        this.client = new PahoMqtt.Client(broker_url, broker_port, client_id);
-        let hostlist;
-        if (useSSL) {
-            hostlist = [`wss://${broker_url}:${broker_port}/`];
-        } else {
-            hostlist = [`ws://${broker_url}:${broker_port}/`];
-        }
-        this.options = {
-            hosts: hostlist,
-            useSSL: useSSL
-        };
+        this.client = undefined;
+    }
 
-        this.client.onMessageArrived = (message) => {
-            const matching_topics = Object.keys(this.callbacks).filter((topic) =>
-                is_match(message.destinationName, topic)
-            );
-            for (const match of matching_topics) {
-                for (const callback of this.callbacks[match]) {
-                    callback(message);
+    is_connected() {
+        return this.client!=undefined && this.client.connected;
+    }
+
+    on_message(topic, message) {
+        if (this.callbacks == {}) return;
+        const message_str = message.toString();
+        const matching_topics = Object.keys(this.callbacks).filter((registered_topic) =>
+            is_match(topic,registered_topic)
+        );
+        for (const match of matching_topics) {
+            for (const callback of this.callbacks[match]) {
+                callback(message_str);
+            }
+        }
+    }
+
+    async callOperation(namespace, assetName, submodelName, operationName, parameters, timeout){
+        const req_id = uuidv4();
+        const topic = `${namespace}/${assetName}/${submodelName}/${operationName}/REQ`;
+        const response_topic = `${namespace}/${assetName}/${submodelName}/${operationName}/RESP`;
+        const promise = this.awaitResponse(response_topic, req_id,timeout);
+        const payload = JSON.stringify({req_id:req_id,params:parameters});
+        await this.publish(topic, payload);
+        return await promise;
+    }
+
+    async bindOperation(namespace, assetName, submodelName, operationName, callback){
+        const topic = `${namespace}/${assetName}/${submodelName}/${operationName}/REQ`;
+        const operation_callback = async (message)=>{
+            const request = JSON.parse(message);
+            const response = callback(request.params);
+            const response_payload = JSON.stringify({req_id: request.req_id, resp: response});
+            const response_topic = `${namespace}/${assetName}/${submodelName}/${operationName}/RESP`;
+            await this.publish(response_topic,response_payload);
+        }
+        await this.subscribe(topic,operation_callback);
+    }
+
+    async awaitSingleMessage(topic,timeout){
+        let timer;
+        return new Promise((resolve,reject)=>{
+            
+            const callback = (message)=>{
+                clearTimeout(timer);
+                resolve(message);
+            }
+            this.subscribe(topic,callback);
+            timer = setTimeout(()=>{
+                this.unsubscribe(topic,callback);
+                reject("timeout");
+            },timeout)
+        })
+    }
+
+    async subscribeEvent(namespace, assetName, submodelName, eventName, cb){
+        const topic = `${namespace}/${assetName}/${submodelName}/${eventName}`;
+        await this.subscribe(topic,cb);
+    }
+
+    async awaitEvent(namespace, assetName, submodelName, eventName, timeout){
+       return this.awaitSingleMessage(`${namespace}/${assetName}/${submodelName}/${eventName}`,timeout);
+    }
+
+    async awaitResponse(topic, req_id, timeout){
+        let timer;
+        return new Promise((resolve,reject)=>{
+            const callback = (message)=>{
+                clearTimeout(timer);
+                const response = JSON.parse(message);
+                if (response.req_id===req_id){
+                    resolve(response.resp);
                 }
             }
-        };
+            this.subscribe(topic,callback);
+            timer = setTimeout(()=>{
+                this.unsubscribe(topic,callback);
+                reject("timeout");
+            },timeout)
+        })
+    }
+    
+    async connect(broker_url, port, ssl, options = {}) {
+        const protocol = ssl ? "wss" : "ws";
+        this.client = await mqtt.connectAsync(`${protocol}://${broker_url}:${port}`, options);
+        debug("Connected to broker.");
+        this.client.on("message", (topic,message)=>this.on_message(topic,message));
+      
     }
 
-    onConnectionLost(cb) {
-        this.client.onConnectionLost = cb;
+    async disconnect(){
+        if (this.client==undefined) return;
+        return await this.client.endAsync();
     }
 
-    isConnected() {
-        return this.client.isConnected();
-    }
-
-    async connect(options = {}) {
-        debug(options);
-        return new Promise((resolve, reject) => {
-            this.options["onSuccess"] = (_) => {
-                debug("Connected to broker.");
-                resolve();
-            };
-            this.options["onFailure"] = (resp) => {
-                debug("Failed to connect: " + resp.errorMessage);
-                reject(resp);
-            };
-            console.log("attempting to connect...");
-            this.client.connect(this.options);
-        });
-    }
-
-    subscribe(topic, cb) {
-        if (!(topic in this.callbacks)) {
+    async subscribe(topic, cb) {
+        if (!this.callbacks[topic]) {
             this.callbacks[topic] = [];
-            this.client.subscribe(topic);
         }
         this.callbacks[topic].push(cb);
+        await this.client.subscribeAsync(topic);
     }
 
-    publish(topic, payload, retained = false) {
-        let msg = new PahoMqtt.Message(payload);
-        msg.destinationName = topic;
-        msg.retained = retained;
-        this.client.send(msg);
-    }
-
-    unsubscribe(topic) {
-        delete this.callbacks[topic];
-        this.client.unsubscribe(topic);
-    }
-
-    async awaitEvent(namespace, assetName, submodelName, eventName, timeout) {
-        let timer;
-        const basePath = `${namespace}/${assetName}/${submodelName}/${eventName}`;
-        const p1 = new Promise((resolve, reject) => {
-            function eventCallback(message) {
-                const respObj = JSON.parse(message.payloadString);
-                resolve(respObj);
-
+    async unsubscribe(topic, cb) {
+        if (this.callbacks[topic]) {
+            this.callbacks[topic] = this.callbacks[topic].filter((callback) => callback !== cb);
+            if (this.callbacks[topic].length == 0) {
+                delete this.callbacks[topic];
+                await this.client.unsubscribeAsync(topic);
             }
-            this.subscribe(basePath, eventCallback);
-
-        });
-        const p2 = new Promise((resolve, reject) => {
-            timer = setTimeout(() => reject("timeout"), timeout);
-        });
-        return Promise.race([p1, p2]).finally(() => clearTimeout(timer));
+        }        
     }
 
-    async callOperation(namespace, assetName, submodelName, operationName, params, timeout = 0) {
-        const payloadObj = { "req_id": uuidv4(), "params": params };
-        const payloadString = JSON.stringify(payloadObj);
-        let timer;
-        const basePath = `${namespace}/${assetName}/${submodelName}/${operationName}`;
-        const p1 = new Promise((resolve, reject) => {
-            function responseCallback(message) {
-                const respObj = JSON.parse(message.payloadString);
-                if (respObj.req_id === payloadObj.req_id) {
-                    resolve(respObj.resp);
-                }
-            }
-            this.subscribe(basePath + "/RESP", responseCallback);
-            this.publish(basePath + "/REQ", payloadString);
-        });
-        if (timeout <= 0) {
-            return p1;
-        }
-        const p2 = new Promise((resolve, reject) => {
-            timer = setTimeout(() => reject("timeout"), timeout);
-        });
-        return Promise.race([p1, p2]).finally(() => clearTimeout(timer));
-
+    async publish(topic, message) {
+        return await this.client.publishAsync(topic, message);
     }
+
 }
