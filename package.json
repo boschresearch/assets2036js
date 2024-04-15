@@ -14,16 +14,17 @@
     "dotenv": "^8.2.0",
     "isomorphic-ws": "^4.0.1",
     "jsonschema": "^1.4.0",
-    "paho-mqtt": "^1.1.0",
+    "mqtt": "^5.5.0",
     "uuid": "^8.3.1",
     "ws": "^7.4.0"
   },
   "devDependencies": {
     "nodemon": "^2.0.6",
-    "typescript": "^4.1.3"
+    "typescript": "^4.1.3",
+    "vitest": "^1.5.0"
   },
   "scripts": {
-    "test": "set DEBUG=*,-nodemon,-follow-redirects & nodemon .\\test_asset.js",
+    "test": "vitest",
     "start": "echo \"Error, this is a lib\" & exit 1",
     "gen_types": "npx tsc"
   },

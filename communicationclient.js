@@ -42,7 +42,7 @@ export default class {
     );
     for (const match of matching_topics) {
       for (const callback of this.callbacks[match]) {
-        callback(message_str);
+        callback(message_str, topic);
       }
     }
   }
@@ -171,7 +171,10 @@ export default class {
     }
   }
 
-  async publish(topic, message) {
-    return await this.client.publishAsync(topic, message);
+  async publish(topic, message, qos = 0, retain = false) {
+    return await this.client.publishAsync(topic, message, {
+      qos: qos,
+      retain: retain,
+    });
   }
 }
