@@ -3,7 +3,7 @@
 Javascript implementation of assets2036py.
 
 ## Usage
-See [test_assetjs](test_asset.js) for an example.
+See [asset.test.js](asset.test.js) for an example.
 
 ## Installation
 ```
