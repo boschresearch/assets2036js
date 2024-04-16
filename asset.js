@@ -24,8 +24,7 @@ import CommunicationClient from "./communicationclient.js";
 import { v4 as uuid4 } from "uuid";
 import endpointDefinition from "./_endpoint_definition.js";
 import submodelSchemaDef from "./submodelschema.js";
-import { Validator } from "jsonschema";
-
+import Ajv from "ajv";
 const debug = Debug("asset");
 
 export async function wait(ms) {
@@ -123,7 +122,6 @@ export class ProxyAsset extends BaseAsset {
   }
 
   async callOperation(submodel, name, params, timeout = -1) {
-    console.log("Calling operation " + name);
     return await this.client.callOperation(
       this.namespace,
       this.assetName,
@@ -324,7 +322,7 @@ export class Asset extends BaseAsset {
     await this._publish(topic, payload, 0, true);
   }
 
-  emitEvent(submodelName, eventName, parameters) {
+  async emitEvent(submodelName, eventName, parameters) {
     const payload = {
       timestamp: new Date().toISOString(),
       params: parameters ? parameters : {},
@@ -332,7 +330,7 @@ export class Asset extends BaseAsset {
     debug("emitting", eventName, payload);
     if (this.client.isConnected()) {
       const topic = this.generateTopic(submodelName, eventName);
-      this._publish(topic, payload, 0, false);
+      await this._publish(topic, payload, 0, false);
       debug("emitted event", eventName);
     }
   }
@@ -385,7 +383,8 @@ export class AssetWatcher {
     this.useSSL = useSSL;
     this.client = new CommunicationClient();
     this.knownAssets = {};
-    this.validator = new Validator();
+    this.ajv = new Ajv({ strict: false });
+    this._validate = this.ajv.compile(submodelSchemaDef);
   }
 
   async connect() {
@@ -568,20 +567,11 @@ export class AssetWatcher {
   }
 
   _isValidMetaDefinition(definition) {
-    try {
-      return [
-        definition.submodel_url !== "",
-        definition.source !== "",
-        this.validator.validate(
-          definition.submodel_definition,
-          submodelSchemaDef,
-          { throwFirst: true }
-        ).valid,
-      ].reduce((a, b) => a && b);
-    } catch (e) {
-      debug("Error in validating Meta information: ", e);
-      return false;
-    }
+    return [
+      definition.submodel_url !== "",
+      definition.source !== "",
+      this._validate(definition.submodel_definition),
+    ].reduce((a, b) => a && b);
   }
 }
 

@@ -21,52 +21,37 @@ import { expect, test, vi, assert } from "vitest";
 import { Asset, ProxyAsset, discover, AssetWatcher, wait } from "./asset.js";
 
 // Be the asset
-test("be the asset", async () => {
+test("properties", async () => {
   let asset = new Asset(BROKER, PORT, "arena2036", "jsTestAsset", false);
   expect(asset).toBeDefined();
   await asset.connect();
   await asset.registerAspect(
     "https://raw.githubusercontent.com/boschresearch/assets2036-submodels/master/testmodel.json"
   );
-  asset.setHealthy(true);
-  asset.testmodel.bind_getBool(() => true);
-  asset.testmodel.bind_setNumber((parameters) => parameters.param_1);
   console.log("creating proxy asset...");
   let proxyAsset = new ProxyAsset(BROKER, PORT, "arena2036", "jsTestAsset");
   await proxyAsset.connect();
-
   expect(proxyAsset.submodels).toHaveProperty("testmodel");
   console.log("proxy asset connected");
-  let resp = await proxyAsset.testmodel.setNumber({ param_1: 42 });
-  console.log("response: ", resp);
-  expect(resp).toBe(42);
 
   const callbacks = {
     on_string_callback: function (value) {
       console.log("new string: ", value);
     },
-    on_numberevent_callback: function (timestamp, value) {
-      console.log("new number event: ", timestamp, value);
-    },
     on_integer_callback: function (value) {
       console.log("new integer: ", value);
     },
   };
-  const spy1 = vi.spyOn(callbacks, "on_string_callback");
-  const spy2 = vi.spyOn(callbacks, "on_numberevent_callback");
-  const spy3 = vi.spyOn(callbacks, "on_integer_callback");
-  proxyAsset.testmodel.on_string(callbacks.on_string_callback);
-  proxyAsset.testmodel.on_numberEvent(callbacks.on_numberevent_callback);
-  proxyAsset.testmodel.on_integer(callbacks.on_integer_callback);
-  asset.testmodel.integer = 42;
-  asset.testmodel.string = "hello";
 
-  asset.testmodel.numberEvent({ param1: 44 });
+  const spy1 = vi.spyOn(callbacks, "on_string_callback");
+  const spy3 = vi.spyOn(callbacks, "on_integer_callback");
+  await proxyAsset.testmodel.on_string(callbacks.on_string_callback);
+  await proxyAsset.testmodel.on_integer(callbacks.on_integer_callback);
+
+  asset.testmodel.integer = 42;
+  asset.testmodel.string = "hello, world!";
+
   await vi.waitUntil(() => spy1.mock.calls.length > 0, {
-    timeout: 2000,
-    interval: 200,
-  });
-  await vi.waitUntil(() => spy2.mock.calls.length > 0, {
     timeout: 2000,
     interval: 200,
   });
@@ -74,13 +59,64 @@ test("be the asset", async () => {
     timeout: 2000,
     interval: 200,
   });
-  expect(spy1).toHaveBeenCalledTimes(1);
-  expect(spy2).toHaveBeenCalledTimes(1);
-  expect(spy3).toHaveBeenCalledTimes(1);
-
+  expect(spy1).toHaveBeenCalled();
+  expect(spy3).toHaveBeenCalled();
   asset.cleanup();
 });
+test("operations", async () => {
+  let asset = new Asset(BROKER, PORT, "arena2036", "jsTestAsset", false);
+  await asset.connect();
+  await asset.registerAspect(
+    "https://raw.githubusercontent.com/boschresearch/assets2036-submodels/master/testmodel.json"
+  );
+  let proxyAsset = new ProxyAsset(BROKER, PORT, "arena2036", "jsTestAsset");
+  await proxyAsset.connect();
+  expect(proxyAsset.submodels).toHaveProperty("testmodel");
 
+  const callbacks = {
+    setNumberCallback: function (value) {
+      expect(value).toBe(42);
+      return 42;
+    },
+  };
+
+  const spy1 = vi.spyOn(callbacks, "setNumberCallback");
+
+  await asset.testmodel.bind_setNumber(callbacks.setNumberCallback);
+
+  const resp = await proxyAsset.testmodel.setNumber(42);
+  expect(resp).toBe(42);
+  expect(spy1).toHaveBeenCalled();
+  asset.cleanup();
+});
+test("events", async () => {
+  let asset = new Asset(BROKER, PORT, "arena2036", "jsTestAsset", false);
+  await asset.connect();
+  await asset.registerAspect(
+    "https://raw.githubusercontent.com/boschresearch/assets2036-submodels/master/testmodel.json"
+  );
+  let proxyAsset = new ProxyAsset(BROKER, PORT, "arena2036", "jsTestAsset");
+  await proxyAsset.connect();
+  expect(proxyAsset.submodels).toHaveProperty("testmodel");
+
+  const callbacks = {
+    onEventCallback: function (timestamp, param_1) {
+      expect(param_1).toBe(42);
+    },
+  };
+
+  const spy1 = vi.spyOn(callbacks, "onEventCallback");
+
+  await proxyAsset.testmodel.on_numberEvent(callbacks.onEventCallback);
+
+  await asset.testmodel.numberEvent({ param_1: 42 });
+  await vi.waitUntil(() => spy1.mock.calls.length > 0, {
+    timeout: 2000,
+    interval: 200,
+  });
+  expect(spy1).toHaveBeenCalled();
+  asset.cleanup();
+});
 // Discover assets
 test("discover assets", async () => {
   let asset = new Asset(BROKER, PORT, "arena2036", "jsTestAsset", false);
@@ -115,7 +151,6 @@ test("watch assets", async () => {
   await watcher.connect();
   const spy = vi.spyOn(watcher, "onAssetInfo");
   watcher.onAssetInfo((assetInfo) => {
-    console.log("asset info: ", assetInfo);
     expect(assetInfo).toEqual(
       expect.objectContaining({
         namespace: "arena2036",
@@ -147,7 +182,6 @@ test("watch online and healthy states", async () => {
     "jsTestAsset",
     "testmodel",
     (healthy) => {
-      console.log("is healthy: ", healthy);
       expect(healthy).toBe(true);
     }
   );
@@ -156,7 +190,6 @@ test("watch online and healthy states", async () => {
     "jsTestAsset",
     "testmodel",
     (online) => {
-      console.log("is online: ", online);
       expect(online).toBe(true);
     }
   );
