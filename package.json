@@ -10,10 +10,10 @@
     "url": "git@github.com:boschresearch/assets2036js.git"
   },
   "dependencies": {
+    "ajv": "^8.12.0",
     "debug": "^4.2.0",
     "dotenv": "^8.2.0",
     "isomorphic-ws": "^4.0.1",
-    "jsonschema": "^1.4.0",
     "mqtt": "^5.5.0",
     "uuid": "^8.3.1",
     "ws": "^7.4.0"
